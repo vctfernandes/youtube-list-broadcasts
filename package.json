@@ -1,6 +1,6 @@
 {
   "name": "youtube-list-broadcasts",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "This module gets a list of your active (live) broadcasts on YouTube. It deals with all the ugly authentication stuff.",
   "main": "library.js",
   "scripts": {
