@@ -1,39 +1,70 @@
 var googleapis = require('googleapis')
 var googleAuth = require('google-auth-library')
 var readline = require('readline')
+var async = require('async')
+const DELAY = 1000
+const MAX_TRIES = 10
 
-exports.liveBroadcasts = function(clientId, clientSecret, redirectUrl, collection, callback) {
-	clientInfo = {
-		clientId: clientId,
-		clientSecret: clientSecret,
-		redirectUrl: redirectUrl
-	}
-	authorize(clientInfo, collection, function(oauth2Client) {
-		listLiveBroadcasts(oauth2Client, function(err, res) {
-			if(err) {
-				console.log("YOUTUBE --- Refreshing the token.")
-				refreshToken(oauth2Client, collection, function() {
-					listLiveBroadcasts(oauth2Client, function(err, res) {
+exports.liveBroadcasts = function(id, clientInfo, callback) {
+	collection = clientInfo.collection
+	isLive = false;
+	count = 0;
+	async.whilst(
+		function() {
+			return (!isLive && count < MAX_TRIES) 
+		},
+		function(callback) {
+			count++
+			setTimeout(
+				authorize(clientInfo, collection, function(oauth2Client) {
+					listLiveBroadcasts(oauth2Client, id, function(err, res) {
 						if(err) {
-							callback(true, null)
+							console.log("YOUTUBE --- Refreshing the token.")
+							refreshToken(oauth2Client, collection, function() {
+								listLiveBroadcasts(oauth2Client, id, function(err, res) {
+									if(err) {
+										callback(true, null)
+									} else {
+										if(findId(res.items, id)) {
+											isLive = true	
+										}
+										callback(null, res.items)	
+									}
+								})
+							})
 						} else {
+							if(findId(res.items, id)) {
+								isLive = true	
+							}
 							callback(null, res.items)	
 						}
 					})
-				})
+				}), DELAY)
+		}, function (err, results) {
+			if(count >= MAX_TRIES) {
+				callback('timeout', null)
 			} else {
-				callback(null, res.items)	
+				callback(null, results)
 			}
-		})
-	})
+		}
+	)
+}
+
+function findId(items, id) {
+	for(i=0;i<items.length;i++) {
+		if(items[i].id == id) {
+			return true
+		}
+	}
+	return false
 }
 
 function authorize(credentials, collection, callback) {
-	var clientSecret = credentials.clientSecret
-	var clientId = credentials.clientId
-	var redirectUrl = credentials.redirectUrl
+	var client_secret = credentials.client_secret
+	var client_id = credentials.client_id
+	var redirect_url = credentials.redirect_url
 	var auth = new googleAuth()
-	var oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUrl)
+	var oauth2Client = new auth.OAuth2(client_id, client_secret, redirect_url)
 
 	collection.findOne({}, function(err, token) {
 		if(!token || typeof token.access_token === 'undefined' || token.access_token == '') {
@@ -63,8 +94,9 @@ function getNewToken(oauth2Client, collection, callback) {
 				callback()
 			} else {
 				oauth2Client.credentials = token
-				storeToken(collection, token)
-				callback(oauth2Client)
+				storeToken(collection, token, function() {
+					callback(oauth2Client)
+				})
 			}
 		})
 	})
@@ -85,7 +117,7 @@ function storeToken(collection, token, callback) {
 	})
 }
 
-function listLiveBroadcasts(oauth2Client, callback) {
+function listLiveBroadcasts(oauth2Client, id, callback) {
 	var youtube = googleapis.youtube('v3')
 
 	youtube.liveBroadcasts.list({
