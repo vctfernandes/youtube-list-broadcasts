@@ -1,22 +1,22 @@
 var googleapis = require('googleapis')
 var googleAuth = require('google-auth-library')
-var readline = require('readline')
 var async = require('async')
-const DELAY = 1000
-const MAX_TRIES = 10
 
 exports.liveBroadcasts = function(id, clientInfo, callback) {
+	if(!clientInfo.client_id || !clientInfo.client_secret || !clientInfo.redirect_url || !clientInfo.collection || !clientInfo.MAX_TRIES || !clientInfo.DELAY) {
+		return callback('Missing parameters.', null)
+	}
 	collection = clientInfo.collection
 	isLive = false;
 	count = 0;
 	needsNewToken = false
 	async.whilst(
 		function() {
-			return (!isLive && count < MAX_TRIES && !needsNewToken) 
+			return (!isLive && count < clientInfo.MAX_TRIES && !needsNewToken) 
 		},
 		function(callback) {
 			count++
-			setTimeout(
+			setInterval(
 				authorize(clientInfo, collection, function(err, oauth2Client) {
 					if(err){
 						console.log(err)
@@ -46,9 +46,9 @@ exports.liveBroadcasts = function(id, clientInfo, callback) {
 							}
 						})	
 					}
-				}), DELAY)
+				}), clientInfo.DELAY)
 		}, function (err, results) {
-			if(count >= MAX_TRIES) {
+			if(count >= clientInfo.MAX_TRIES) {
 				callback('timeout', null)
 			} else if (needsNewToken) {
 				callback('needsNewToken',null)
@@ -133,7 +133,7 @@ function listLiveBroadcasts(oauth2Client, id, callback) {
 	youtube.liveBroadcasts.list({
 		auth: oauth2Client,
 		part: 'id',
-		broadcastStatus: 'active'
+		broadcastStatus: 'all'
 	}, function(err, response) {
 		if(err){
 			callback(err, null)
