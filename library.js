@@ -3,20 +3,28 @@ var googleAuth = require('google-auth-library')
 var async = require('async')
 
 exports.liveBroadcasts = function(id, clientInfo, callback) {
-	if(!clientInfo.client_id || !clientInfo.client_secret || !clientInfo.redirect_url || !clientInfo.collection || !clientInfo.MAX_TRIES || !clientInfo.DELAY) {
+	if(
+		!clientInfo.client_id || 
+		!clientInfo.client_secret || 
+		!clientInfo.redirect_url || 
+		!clientInfo.collection || 
+		!clientInfo.MAX_TRIES  || clientInfo.MAX_TRIES <= 0 ||
+		!clientInfo.DELAY || clientInfo.DELAY <= 0
+	) {
 		return callback('Missing parameters.', null)
 	}
 	collection = clientInfo.collection
 	isLive = false;
 	count = 0;
 	needsNewToken = false
+	wrongRefreshToken = false
 	async.whilst(
 		function() {
 			return (!isLive && count < clientInfo.MAX_TRIES && !needsNewToken) 
 		},
 		function(callback) {
 			count++
-			setInterval(
+			setTimeout(function() {
 				authorize(clientInfo, collection, function(err, oauth2Client) {
 					if(err){
 						console.log(err)
@@ -26,17 +34,22 @@ exports.liveBroadcasts = function(id, clientInfo, callback) {
 						listLiveBroadcasts(oauth2Client, id, function(err, res) {
 							if(err) {
 								console.log("YOUTUBE --- Refreshing the token.")
-								refreshToken(oauth2Client, collection, function() {
-									listLiveBroadcasts(oauth2Client, id, function(err, res) {
-										if(err) {
-											callback(true, null)
-										} else {
-											if(findId(res.items, id)) {
-												isLive = true	
+								refreshToken(oauth2Client, collection, function(err, result) {
+									if(err) {
+										wrongRefreshToken = true
+										callback('wrongRefreshToken', null)
+									} else {
+										listLiveBroadcasts(oauth2Client, id, function(err, res) {
+											if(err) {
+												callback(true, null)
+											} else {
+												if(findId(res.items, id)) {
+													isLive = true	
+												}
+												callback(null, res.items)	
 											}
-											callback(null, res.items)	
-										}
-									})
+										})	
+									}
 								})
 							} else {
 								if(findId(res.items, id)) {
@@ -46,12 +59,15 @@ exports.liveBroadcasts = function(id, clientInfo, callback) {
 							}
 						})	
 					}
-				}), clientInfo.DELAY)
+				})
+			}, clientInfo.DELAY)
 		}, function (err, results) {
 			if(count >= clientInfo.MAX_TRIES) {
 				callback('timeout', null)
 			} else if (needsNewToken) {
 				callback('needsNewToken',null)
+			} else if (wrongRefreshToken) {
+				callback('wrongRefreshToken', null)
 			} else {
 				callback(null, results)
 			}
@@ -76,7 +92,7 @@ function authorize(credentials, collection, callback) {
 	var oauth2Client = new auth.OAuth2(client_id, client_secret, redirect_url)
 
 	collection.findOne({}, function(err, token) {
-		if(!token || typeof token.access_token === 'undefined' || token.access_token == '') {
+		if(!token || !token.access_token) {
 			getNewCode(oauth2Client, collection, function(err, result) {
 				callback(err, result)
 			})
@@ -105,8 +121,12 @@ exports.getNewToken = function(settings, code, callback) {
 			callback(err, null)
 		} else {
 			oauth2Client.credentials = token
-			storeToken(settings.collection, token, function() {
-				callback(null, 'ok')
+			storeToken(settings.collection, token, function(err, result) {
+				if(err) {
+					callback(err, null)
+				} else {
+					callback(null, 'ok')	
+				}
 			})
 		}
 	})
@@ -114,16 +134,20 @@ exports.getNewToken = function(settings, code, callback) {
 
 function refreshToken(oauth2Client, collection, callback) {
 	oauth2Client.refreshAccessToken(function(err, tokens){
-		oauth2Client.credentials.access_token = tokens.access_token
-		storeToken(collection, tokens, function() {
-			callback()
-		})
+		if (err) {
+			callback(err, null)
+		} else {
+			oauth2Client.credentials.access_token = tokens.access_token ? tokens.access_token : null 
+			storeToken(collection, tokens, function(err, result) {
+				callback(err, result)
+			})
+		}
 	})
 }
 
 function storeToken(collection, token, callback) {
-	collection.update({}, {$set: token}, {upsert: true}, function() {
-		callback()
+	collection.update({}, {$set: token}, {upsert: true}, function(err, result) {
+		callback(err, result)
 	})
 }
 
@@ -133,7 +157,7 @@ function listLiveBroadcasts(oauth2Client, id, callback) {
 	youtube.liveBroadcasts.list({
 		auth: oauth2Client,
 		part: 'id',
-		broadcastStatus: 'all'
+		broadcastStatus: 'active'
 	}, function(err, response) {
 		if(err){
 			callback(err, null)
