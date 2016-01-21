@@ -2,6 +2,7 @@
 NodeJS module meant to list all of your active broadcasts and say if the specified id is actively broadcasting. YouTube API v3 compliant.
 
 Here is what I'm doing outside the module to talk with it:
+
     var express = require('express');
     var youtube = require('youtube-list-broadcasts')
     var mongojs = require('mongojs')
@@ -11,7 +12,9 @@ Here is what I'm doing outside the module to talk with it:
 			client_id: CLIENT_ID,
 			client_secret: CLIENT_SECRET,
 			redirect_url: "https://www.mywebsite.com/callback/youtube",
-			collection: db.mycollection
+			collection: db.mycollection,
+			DELAY: 1000, //interval between API queries.
+			MAX_TRIES: 600 //how many times should the loop be ran before it returns a timeout.
 		}
 
     app.get('/', function(req, res){
